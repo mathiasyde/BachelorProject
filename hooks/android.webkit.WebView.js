@@ -3,6 +3,13 @@ Java.perform(function () {
 
   const WebView = Java.use("android.webkit.WebView");
 
+  WebView.$init.overload("android.content.Context").implementation = function (context) {
+    const retval = this.$init(context);
+    log("WebView(context=" + context + ") => " + retval);
+    this.setWebContentsDebuggingEnabled(true);
+    return retval;
+  }
+
   WebView.addJavascriptInterface.overload("java.lang.Object", "java.lang.String").implementation = function (object, interfaceName) {
     const retval = this.addJavascriptInterface(object, interfaceName);
     log("WebView.addJavascriptInterface(obj=" + object.$className + ", name=" + interfaceName + ") => " + retval);
