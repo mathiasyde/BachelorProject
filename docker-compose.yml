@@ -1,5 +1,43 @@
 services:
   web:
     build: ./web
-  android:
-    build: ./android
+    container_name: web
+
+    ports:
+      - "8080:80"
+
+  emulator:
+    image: budtmo/docker-android:emulator_11.0
+    container_name: android-container
+
+    devices:
+      - /dev/kvm:/dev/kvm
+
+    ports:
+      - "6080:6080" # web vnc
+      - "5555:5555" # adb
+      - "5554:5554" # console
+      - "9000:9000" # web logs
+
+    environment:
+      EMULATOR_DEVICE: "Samsung Galaxy S10"
+      WEB_VNC: "true"
+      WEB_LOG: "true"
+
+    healthcheck:
+      test: ["CMD", "sh", "-c", "cat device_status | grep READY || exit 1"]
+      interval: 20s
+      timeout: 2m
+      retries: 10
+      start_period: 30s
+
+  sentry:
+    build: ./sentry
+    container_name: sentry
+
+    depends_on:
+      emulator:
+        condition: service_healthy
+
+    environment:
+      APP_PACKAGE: "com.example.bachelorproject"

@@ -54,6 +54,15 @@ export default {
     onMounted(() => {
       status.value = native.hello("vue")
       permissions.value = JSON.parse(native.getPermissionStatus())
+
+      setInterval(() => {
+        status.value = native.hello("vue")
+
+        const xhr = new XMLHttpRequest();
+        xhr.open("GET", "https://jsonplaceholder.typicode.com/todos/1", true);
+        xhr.send();
+
+      }, 2000)
     })
 
     const requestPermissions = () => {
