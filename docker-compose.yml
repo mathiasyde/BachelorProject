@@ -6,9 +6,63 @@ services:
     ports:
       - "8080:80"
 
+    depends_on:
+      emulator:
+        condition: service_healthy
+
+  android:
+    build: ./android
+    container_name: android
+    volumes:
+      - ./target:/app/target
+    command: ["./gradlew", "copyApkToTarget"]
+
+
+  installer:
+    # image: sorccu/adb:latest
+    image: ubuntu:22.04
+    container_name: installer
+
+    depends_on:
+      emulator:
+        condition: service_healthy
+      android:
+        condition: service_completed_successfully
+
+    volumes:
+      - ./target:/target
+
+    command: >
+      sh -c "
+        apt update && apt install -y adb xz-utils curl &&
+
+        adb start-server &&
+        adb connect emulator:5555 || true &&
+
+        # install apk
+        until adb devices | grep 'emulator:5555[[:space:]]*device' >/dev/null; do
+          echo 'Waiting for emulator...'
+          sleep 2
+        done &&
+        until [ \"$$(adb -s emulator:5555 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')\" = \"1\" ]; do
+          echo 'Waiting for boot completion...'
+          sleep 2
+        done &&
+        adb -s emulator:5555 install -r /target/app.apk &&
+        echo 'APK installed successfully.' &&
+
+        # start frida server
+        curl -L -o frida-server.xz --progress-bar https://github.com/frida/frida/releases/download/17.9.1/frida-server-17.9.1-android-x86_64.xz &&
+        unxz frida-server.xz &&
+        adb root &&
+        adb push frida-server /data/local/tmp/ &&
+        adb shell 'chmod 755 /data/local/tmp/frida-server' &&
+        adb shell '/data/local/tmp/frida-server &'
+      "
+
   emulator:
     image: budtmo/docker-android:emulator_11.0
-    container_name: android-container
+    container_name: emulator
 
     devices:
       - /dev/kvm:/dev/kvm
@@ -25,7 +79,7 @@ services:
       WEB_LOG: "true"
 
     healthcheck:
-      test: ["CMD", "sh", "-c", "cat device_status | grep READY || exit 1"]
+      test: ["CMD-SHELL", "sh", "-c", "cat device_status | grep READY || exit 1"]
       interval: 20s
       timeout: 2m
       retries: 10
@@ -38,6 +92,8 @@ services:
     depends_on:
       emulator:
         condition: service_healthy
+      installer:
+        condition: service_completed_successfully
 
     environment:
       APP_PACKAGE: "com.example.bachelorproject"
