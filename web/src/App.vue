@@ -59,6 +59,16 @@
 
         The Android JavaScriptInterface is detected and all of its methods are hooked too, allowing you to see the communication between the webpage and the native Android app in real time.
       </p>
+
+      <p>
+        Functions within the JavaScript runtime are also intercepted, so calls to functions like window.fetch are logged to console output.
+
+        Try it with the dog.ceo image API, click the image to get a new random dog image, and see the logged fetch calls in the Android app's console output.
+      </p>
+
+      <button @click="callAPI">
+        <img :src="resultAPI" alt="" srcset="">
+      </button>
     </section>
   </main>
 
@@ -72,11 +82,14 @@ export default {
   setup() {
     const permissions = ref({})
     const photo = ref(null)
+    const resultAPI = ref(null)
 
     onMounted(() => {
       if (window.native) {
         permissions.value = JSON.parse(window.native.getPermissionStatus())
       }
+
+      callAPI();
     })
 
     const requestPermissions = () => {
@@ -92,11 +105,24 @@ export default {
       }
     }
 
+    const callAPI = async () => {
+      try {
+        const response = await window.fetch('https://dog.ceo/api/breeds/image/random')
+        const data = await response.json()
+        resultAPI.value = data.message
+      } catch (error) {
+        console.error('Error fetching API:', error)
+      }
+    }
+
     return {
       window,
 
       permissions,
       photo,
+
+      callAPI,
+      resultAPI,
 
       requestPermissions,
       takePhoto
