@@ -42,6 +42,8 @@ The `android` container will take a while without terminal output, but it is run
 The following setion assumes that you already have `git`, `curl`, `unxz`, `python`, `pip`, `adb`, `sdkmanager`, `avdmanager`, `emulator`, `java` (JDK) and `npm` installed and on your PATH.
 This project is developed on **Fedora 43** with **x86_64** architecture, so any other configuration is not guaranteed to work.
 
+Each step after the first one assumes your current working directory is in the repository root.
+
 ## Clone repository
 
 ```bash
@@ -122,7 +124,7 @@ emulator @android
 
 ## Install APK on emulator
 
-Install the APK file from the prior step.
+Install the APK file from the prior step
 
 ```bash
 adb install -r android/target/app.apk
@@ -133,3 +135,5 @@ adb install -r android/target/app.apk
 ```bash
 frida -U -f com.example.bachelorproject -l sentry/hooks.js
 ```
+
+You should see output from the FRIDA hooks about WebView activity.
