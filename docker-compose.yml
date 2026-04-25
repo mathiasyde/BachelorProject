@@ -16,27 +16,43 @@ services:
       - ./target:/app/target
     command: >
       sh -c "
-        if ![ -f /app/target/app.apk ]; then
+        if [ ! -f /app/target/app.apk ]; then
           ./gradlew assembleDebug
           ./gradlew copyApkToTarget
         fi
       "
 
-  install-frida-server:
-    build: ./install-frida-server
-    container_name: install-frida-server
-    depends_on:
-      emulator:
-        condition: service_healthy
-
-    environment:
-      FRIDA_URL: https://github.com/frida/frida/releases/download/17.9.1/frida-server-17.9.1-android-x86_64.xz
-      FRIDA_SERVER: /data/local/tmp/frida-server
-      EMULATOR_HOST: emulator
-      EMULATOR_PORT: "5555"
+  run-frida-server:
+    build: ./run-frida-server
+    container_name: run-frida-server
+    restart: "no"
 
     volumes:
       - ./target:/target
+
+    depends_on:
+      emulator:
+        condition: service_healthy
+      android:
+        condition: service_completed_successfully
+
+    environment:
+      FRIDA_SERVER: /data/local/tmp/frida-server
+      ADB_HOST: emulator
+      ADB_PORT: "5555"
+      FRIDA_URL: https://github.com/frida/frida/releases/download/17.9.1/frida-server-17.9.1-android-x86_64.xz
+
+    # command: ["sh", "-c", "adb shell '/data/local/tmp/frida-server &'"]
+    # healthcheck:
+    #   test:
+    #     [
+    #       "CMD-SHELL",
+    #       "adb shell 'ps | grep frida-server' | grep -q frida-server || exit 1",
+    #     ]
+    #   interval: 5s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 40s
 
   emulator:
     image: budtmo/docker-android:emulator_11.0
@@ -57,37 +73,11 @@ services:
       WEB_LOG: "true"
 
     healthcheck:
-      test:
-        ["CMD-SHELL", "sh", "-c", "cat device_status | grep READY || exit 1"]
+      test: ["CMD-SHELL", "adb connect 127.0.0.1:5555 >/dev/null 2>&1;"]
       interval: 20s
       timeout: 2m
-      retries: 10
+      retries: 30
       start_period: 30s
-
-  run-frida-server:
-    build: ./run-frida-server
-    container_name: run-frida-server
-    restart: "no"
-
-    depends_on:
-      emulator:
-        condition: service_healthy
-      install-frida-server:
-        condition: service_completed_successfully
-
-    command: ["sh", "-c", "adb shell '/data/local/tmp/frida-server &'"]
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "sh",
-          "-c",
-          "adb shell 'ps | grep frida-server' | grep -q frida-server || exit 1",
-        ]
-      interval: 5s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
 
   sentry:
     build: ./sentry
@@ -96,10 +86,8 @@ services:
     depends_on:
       emulator:
         condition: service_healthy
-      install-frida-server:
-        condition: service_completed_successfully
-      run-frida-server:
-        condition: service_healthy
+      # run-frida-server:
+      #   condition: service_healthy
 
     environment:
       APP_PACKAGE: "com.example.bachelorproject"
