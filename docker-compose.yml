@@ -42,17 +42,16 @@ services:
       ADB_PORT: "5555"
       FRIDA_URL: https://github.com/frida/frida/releases/download/17.9.1/frida-server-17.9.1-android-x86_64.xz
 
-    # command: ["sh", "-c", "adb shell '/data/local/tmp/frida-server &'"]
-    # healthcheck:
-    #   test:
-    #     [
-    #       "CMD-SHELL",
-    #       "adb shell 'ps | grep frida-server' | grep -q frida-server || exit 1",
-    #     ]
-    #   interval: 5s
-    #   timeout: 10s
-    #   retries: 3
-    #   start_period: 40s
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "adb connect emulator:5555 >/dev/null 2>&1 || true; adb -s emulator:5555 shell pgrep -f frida-server >/dev/null 2>&1",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 45s
 
   emulator:
     image: budtmo/docker-android:emulator_11.0
@@ -86,8 +85,9 @@ services:
     depends_on:
       emulator:
         condition: service_healthy
-      # run-frida-server:
-      #   condition: service_healthy
+      run-frida-server:
+        condition: service_healthy
 
     environment:
       APP_PACKAGE: "com.example.bachelorproject"
+      URL: "http://web/"
