@@ -1,48 +1,36 @@
 # Sentry
 > Security Analysis of Hybrid Android apps
 
-# Run custom APKs
+This project aims to evaluate the security implications of hybrid Android apps using dynamic analysis with [Frida](https://frida.re/). The Sentry defines FRIDA hooks that intercept into the app's WebView-related components, also intercepting into JavaScript of the WebView contents.
 
-Run the following bash section if you don't have already
+# Quick Start
 
-```bash
-pip install frida-tools 
-
-emulator @android
-
-# install frida server on emulator
-curl -L -o frida-server.xz https://github.com/frida/frida/releases/download/17.9.1/frida-server-17.9.1-android-x86_64.xz
-unxz frida-server.xz
-adb root
-adb push frida-server /data/local/tmp/
-adb shell "chmod 755 /data/local/tmp/frida-server"
-```
-
-To install the APK file and run it with FRIDA, use the following:
+This project is only supported on Linux distributions, and so far only tested on Fedora 43. You need to have Docker and Docker Compose installed on your system, along with `aapt` from the Android SDK if you don't provide the APK package name.
 
 ```bash
-adb install -r <MY-APK-FILE>
-frida -U -f <MY-APK-PACKAGE> -l sentry/hooks.js
+chmod +x ./analyse.sh
+./analyse.sh <APK-FILE> [<APK-PACKAGE>]
 ```
 
-After that, just use the `frida` command to run the app again.
+This outputs a log file in the `/logs` directory which can be used to produce a human-readable report.
 
-# Setup with Docker Compose (WIP)
+# WebView Demonstration
+
+This project contains a demonstration web-application in the `/web` folder and an Android app in the `/android` folder. A Docker Compose configuration is provided to run the neccessary components locally, this will build the Android app into an APK, run the web server, start the emulator, push the APK to the emulator, push `frida-server` to the emulator and run it.
+
+Enjoy a cup of nice tea or coffee on initial launch.
 
 ```bash
 docker compose up
 ```
 
-This will most likely take a long time for initial launch. Personally, after initial launch it takes 5-6 minutes to start completely.
-
-The `android` container will take a while without terminal output, but it is running.
+The default port for the emulator VNC is `6080`. Visit `localhost:6080` in your browser to view the emulator.
 
 # Setup for Local Development
 
-The following setion assumes that you already have `git`, `curl`, `unxz`, `python`, `pip`, `adb`, `sdkmanager`, `avdmanager`, `emulator`, `java` (JDK) and `npm` installed and on your PATH.
 This project is developed on **Fedora 43** with **x86_64** architecture, so any other configuration is not guaranteed to work.
 
-Each step after the first one assumes your current working directory is in the repository root.
+You'll need the following dependencies installed on your system and be available on your PATH: `git`, `curl`, `unxz`, `python`, `pip`, `adb`, `sdkmanager`, `avdmanager`, `emulator`, `java` (JDK) and `npm`.
 
 ## Clone repository
 
@@ -50,6 +38,8 @@ Each step after the first one assumes your current working directory is in the r
 git clone https://github.com/mathiasyde/bachelorproject
 cd bachelorproject
 ```
+
+Each step from now on assumes your current working directory is in the repository root.
 
 ## Build Android APK
 
