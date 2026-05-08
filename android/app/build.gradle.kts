@@ -59,3 +59,17 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
+
+tasks.register("outputPackageToEnv") {
+  dependsOn(":app:assembleDebug")
+
+  val applicationId = android.defaultConfig.applicationId;
+  applicationId ?: throw GradleException("applicationId is null");
+
+  val outputDir = rootProject.file("target/")
+  outputDir.mkdirs();
+
+  val envFile = outputDir.resolve(".env");
+
+  envFile.writeText("APP_PACKAGE=$applicationId")
+}

@@ -32,14 +32,14 @@ if [ ! -f "$APK_INPUT" ]; then
     exit 1
 fi
 
-APK_PACKAGE="$2"
+APP_PACKAGE="$2"
 
 # extract package name from apk if not provided
-if [ "$APK_PACKAGE" = "" ]; then
-  APK_PACKAGE=$(aapt dump badging "$APK_INPUT" | grep package | cut -d' ' -f2 | cut -d"'" -f2)
+if [ "$APP_PACKAGE" = "" ]; then
+  APP_PACKAGE=$(aapt dump badging "$APK_INPUT" | grep package | cut -d' ' -f2 | cut -d"'" -f2)
 fi
 
-if [ "$APK_PACKAGE" = "" ]; then
+if [ "$APP_PACKAGE" = "" ]; then
   echo "Failed to extract package name from apk"
   exit 1
 fi
@@ -49,10 +49,17 @@ if [ ! -c /dev/kvm ]; then
     echo "Warning: /dev/kvm not found, virtualization may not work properly"
 fi
 
+# detect docker compose file
+if [ ! -f docker-compose.yml ]; then
+    echo "Error: docker-compose.yml not found"
+    exit 1
+fi
+
 mkdir -p ./target
 mkdir -p ./logs
 cp "$APK_INPUT" ./target/app.apk
 
-# -e APP_PACKAGE="$APK_PACKAGE"
-docker compose up -d --force-recreate emulator run-frida-server sentry
-docker compose logs -f sentry
+docker compose down
+echo "APP_PACKAGE=$APP_PACKAGE" > ./target/.env
+docker compose up --build -d emulator run-frida-server sentry
+docker logs sentry
