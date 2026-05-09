@@ -61,7 +61,6 @@ cp "$APK_INPUT" ./target/app.apk
 touch ./target/output.log
 echo "APP_PACKAGE=$APP_PACKAGE" > ./target/.env
 
-
 # docker compose up -d emulator
 docker compose down
 docker compose up -d emulator run-frida-server sentry
