@@ -1,38 +1,20 @@
-const WebView = Java.use("android.webkit.WebView");
-const WebViewClient = Java.use("android.webkit.WebViewClient");
-const ValueCallback = Java.use("android.webkit.ValueCallback");
-const StringClass = Java.use("java.lang.String");
-
 const PROBE_POLLING_RATE = 1000; // ms
 
-const FORMAT_JSON =
-  "\{timestamp:{timestamp:s},message:{message:s},origin:{origin:s}\}";
-const FORMAT_READABLE = "[{timestamp:s}]: {origin:s} - {message:s}";
-
-function format(str, obj) {
-  return str.replace(/{(\w+):([sd])}/g, (_, key, type) => {
-    const val = obj[key];
-    if (type === "d") return Number(val);
-    return String(val);
-  });
-}
-
-const log = (message, args, format = FORMAT_JSON) => {
-  const prototype = {
-    ...{
-      message: message,
-      origin: "unknown",
-      timestamp: new Date().toISOString(),
-    },
-    ...args,
-  };
-
-  console.log(format(FORMAT_JSON, prototype));
-};
+const EVENT_TYPE = Object.freeze({
+  WEBVIEW_CREATED: "webview.created",
+  WEBVIEW_PAGE_LOADED: "webview.page.loaded",
+  WEBVIEW_ADDED: "webview.added",
+  URL_LOADED: "url.loaded",
+  JS_EVALUATED: "js.evaluated",
+  JS_PROBE: "js.probe",
+  BRIDGE_ADDED: "bridge.added",
+  BRIDGE_METHOD_CALLED: "bridge.method.called",
+  BRIDGE_METHOD_ADDED: "bridge.method.added",
+});
 
 const PROBE = `(function() {
-  const events = window.__frida__.events;
-  window.__frida__.events = [];
+  const events = window.__frida__.events.slice();
+  window.__frida__.events.length = 0;
 
   return {
     href: location.href,
@@ -52,12 +34,11 @@ const INJECTION = `(function() {
       timestamp: new Date().toISOString(),
       ...event,
     });
-    return JSON.stringify(event);
   }
 
   function intercept(original, name) {
     return function(...args) {
-      report({name, arguments: args});
+      report({name: name, arguments: args});
       return original.apply(this, args);
     };
   }
@@ -70,19 +51,48 @@ const INJECTION = `(function() {
   localStorage.getItem = intercept(localStorage.getItem, "localStorage.getItem");
 })();`;
 
-const inject = (view) => {
-  try {
-    view.evaluateJavascript(StringClass.$new(INJECTION), null);
-  } catch (error) {
-    console.log("[!] Failed to inject: " + error);
+// safe serializer that handles circular refs and Frida Java proxies
+function sanitize(value, seen = new Set()) {
+  if (value === null || value === undefined) return null;
+  const t = typeof value;
+  if (t === "string" || t === "number" || t === "boolean") return value;
+  if (t === "function") return `[Function: ${value.name || "anonymous"}]`;
+  if (seen.has(value)) return "[Circular]";
+  if (Array.isArray(value)) {
+    seen.add(value);
+    const arr = value.map((v) => sanitize(v, seen));
+    seen.delete(value);
+    return arr;
   }
-};
+  if (t === "object") {
+    // Frida Java proxies usually expose $className
+    if (value.$className) {
+      try {
+        return value.toString();
+      } catch (e) {
+        return `[Java object ${value.$className}]`;
+      }
+    }
+    seen.add(value);
+    const out = {};
+    for (const k in value) {
+      try {
+        out[k] = sanitize(value[k], seen);
+      } catch (e) {
+        out[k] = `[Unserializable]`;
+      }
+    }
+    seen.delete(value);
+    return out;
+  }
+  return String(value);
+}
 
-// WebViewClient
 Java.perform(() => {
-  const log = (message) => console.log(`[WebViewClient] ${message}`);
-
-  console.log("[*] WebViewClient instrumentation started");
+  const WebView = Java.use("android.webkit.WebView");
+  const WebViewClient = Java.use("android.webkit.WebViewClient");
+  const ValueCallback = Java.use("android.webkit.ValueCallback");
+  const StringClass = Java.use("java.lang.String");
 
   const ProbeCallback = Java.registerClass({
     name: "com.frida.instrumentation.ProbeCallback",
@@ -90,53 +100,73 @@ Java.perform(() => {
     methods: {
       onReceiveValue: function (value) {
         const data = JSON.parse(value);
-        const events = data.events || [];
 
-        events.forEach((event) => {
-          log(`[Probe] ${event.name}(${JSON.stringify(event.arguments)})`);
+        data.events.forEach((event) => {
+          log(
+            EVENT_TYPE.JS_PROBE,
+            { name: event.name, arguments: event.arguments },
+            event.timestamp,
+          );
         });
       },
     },
   });
 
-  const probe = (view) => {
-    try {
-      view.evaluateJavascript(StringClass.$new(PROBE), ProbeCallback.$new());
-    } catch (error) {
-      log("[!] Failed to probe: " + error);
-    }
-  };
-
+  let messages = [];
   let active = null;
 
-  const startPolling = () =>
-    setInterval(() => {
-      Java.perform(() => {
-        if (active === null) {
-          return;
-        }
+  const log = (type, data, timestamp = new Date().toISOString()) => {
+    messages.push({ type: type, timestamp: timestamp, data: data });
+  };
 
-        Java.scheduleOnMainThread(() => {
-          try {
-            active.evaluateJavascript(
-              StringClass.$new(PROBE),
-              ProbeCallback.$new(),
-            );
-          } catch (error) {
-            log("[!] Failed to poll: " + error);
-          }
-        });
-      });
-    }, PROBE_POLLING_RATE);
+  setInterval(() => {
+    Java.scheduleOnMainThread(() => {
+      if (active != null) {
+        active.evaluateJavascript(
+          StringClass.$new(PROBE),
+          ProbeCallback.$new(),
+        );
+      }
+    });
+
+    messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    messages.forEach((message) => {
+      console.log(JSON.stringify(sanitize(message)));
+    });
+
+    messages.length = 0;
+  }, 1000);
+
+  WebView.loadUrl.overload("java.lang.String").implementation = function (url) {
+    const retval = this.loadUrl(url);
+    log(EVENT_TYPE.URL_LOAD, { url: url, retval: retval });
+    return retval;
+  };
+
+  WebView.$init.overload("android.content.Context").implementation = function (
+    context,
+  ) {
+    const retval = this.$init(context);
+    log(EVENT_TYPE.WEBVIEW_CREATED, { context: context, retval: retval });
+    this.setWebContentsDebuggingEnabled(true);
+    return retval;
+  };
 
   WebViewClient.onPageFinished.overload(
     "android.webkit.WebView",
     "java.lang.String",
   ).implementation = function (view, url) {
     const retval = this.onPageFinished(view, url);
-    log(`WebViewClient.onPageFinished(view=${view}, url=${url}) => ${retval}`);
-    inject(view);
+
+    log(EVENT_TYPE.WEBVIEW_PAGE_LOADED, {
+      url: url,
+      view: view,
+      retval: retval,
+    });
+
+    view.evaluateJavascript(StringClass.$new(INJECTION), null);
     active = Java.retain(view);
+
     return retval;
   };
 
@@ -145,62 +175,9 @@ Java.perform(() => {
     "java.lang.String",
   ).implementation = function (view, url) {
     const retval = this.onLoadResource(view, url);
-    log(`WebViewClient.onLoadResource(view=${view}, url=${url}) => ${retval}`);
-    inject(view);
+
+    view.evaluateJavascript(StringClass.$new(INJECTION), null);
     active = Java.retain(view);
-    return retval;
-  };
-
-  startPolling();
-});
-
-// WebView
-Java.perform(function () {
-  const log = (message) => console.log(`[WebView] ${message}`);
-
-  WebView.$init.overload("android.content.Context").implementation = function (
-    context,
-  ) {
-    const retval = this.$init(context);
-    log("WebView(context=" + context + ") => " + retval);
-    this.setWebContentsDebuggingEnabled(true);
-    return retval;
-  };
-
-  WebView.addJavascriptInterface.overload(
-    "java.lang.Object",
-    "java.lang.String",
-  ).implementation = function (object, interfaceName) {
-    const retval = this.addJavascriptInterface(object, interfaceName);
-    log(
-      "WebView.addJavascriptInterface(obj=" +
-        object.$className +
-        ", name=" +
-        interfaceName +
-        ") => " +
-        retval,
-    );
-
-    // instantiate the specific object as the subclass
-    const instance = Java.cast(object, Java.use(object.$className));
-    const methods = instance.class.getDeclaredMethods();
-
-    methods.forEach(function (method) {
-      const name = method.getName();
-      const parameters = method
-        .getParameterTypes()
-        .map((parameter) => parameter.getName());
-
-      // https://github.com/iddoeldor/frida-snippets#hook-overloads
-      instance[name].overload.apply(instance[name], parameters).implementation =
-        function (...args) {
-          const retval = this[name].apply(this, args);
-          console.log(
-            `[JavascriptInterface] ${interfaceName}.${name}(${args.map((arg) => `'${arg}'`).join(", ")}) => ${JSON.stringify(retval)}`,
-          );
-          return retval;
-        };
-    });
 
     return retval;
   };
@@ -213,15 +190,63 @@ Java.perform(function () {
 
     // omit __frida__ scripts to avoid noise in logs
     if (script.includes("__frida__") == false) {
-      log("WebView.evaluateJavascript(script=" + script + ") => " + retval);
+      log(EVENT_TYPE.JS_EVALUATED, {
+        retval: retval,
+        callback: callback,
+        script: script,
+      });
     }
 
     return retval;
   };
 
-  WebView.loadUrl.overload("java.lang.String").implementation = function (url) {
-    const retval = this.loadUrl(url);
-    log("WebView.loadUrl(url=" + url + ") => " + retval);
+  WebView.addJavascriptInterface.overload(
+    "java.lang.Object",
+    "java.lang.String",
+  ).implementation = function (object, interfaceName) {
+    const retval = this.addJavascriptInterface(object, interfaceName);
+
+    log(EVENT_TYPE.BRIDGE_ADDED, {
+      object: object,
+      interfaceName: interfaceName,
+      retval: retval,
+    });
+
+    // instantiate the specific object as the subclass
+    const instance = Java.cast(object, Java.use(object.$className));
+    const methods = instance.class.getDeclaredMethods();
+
+    methods.forEach((method) => {
+      const methodName = method.getName();
+      const methodArgs = method
+        .getParameterTypes()
+        .map((parameter) => parameter.getName());
+
+      log(EVENT_TYPE.BRIDGE_METHOD_ADDED, {
+        object: object,
+        interfaceName: interfaceName,
+        method: methodName,
+        args: methodArgs,
+      });
+
+      // https://github.com/iddoeldor/frida-snippets#hook-overloads
+      instance[methodName].overload.apply(
+        instance[methodName],
+        methodArgs,
+      ).implementation = function (...args) {
+        const retval = this[methodName].apply(this, args);
+        log(EVENT_TYPE.BRIDGE_METHOD_CALLED, {
+          object: object,
+          interfaceName: interfaceName,
+          method: methodName,
+          methodArgs: methodArgs,
+          args: args,
+          retval: retval,
+        });
+        return retval;
+      };
+    });
+
     return retval;
   };
 });
