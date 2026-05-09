@@ -238,7 +238,7 @@ Java.perform(() => {
         log(EVENT_TYPE.BRIDGE_METHOD_CALLED, {
           object: object,
           interfaceName: interfaceName,
-          method: methodName,
+          methodName: methodName,
           methodArgs: methodArgs,
           args: args,
           retval: retval,
