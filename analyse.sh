@@ -58,8 +58,13 @@ fi
 mkdir -p ./target
 mkdir -p ./logs
 cp "$APK_INPUT" ./target/app.apk
-
-docker compose down
+touch ./target/output.log
 echo "APP_PACKAGE=$APP_PACKAGE" > ./target/.env
-docker compose up --build -d emulator run-frida-server sentry
-docker logs sentry
+
+
+# docker compose up -d emulator
+docker compose down
+docker compose up -d emulator run-frida-server sentry
+
+# docker compose logs -f sentry
+docker compose logs sentry > ./target/output.log
