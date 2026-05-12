@@ -10,6 +10,7 @@ const EVENT_TYPE = Object.freeze({
   BRIDGE_ADDED: "bridge.added",
   BRIDGE_METHOD_CALLED: "bridge.method.called",
   BRIDGE_METHOD_ADDED: "bridge.method.added",
+  PERMISSION_REQUESTED: "permission.requested",
 });
 
 const PROBE = `(function() {
@@ -93,6 +94,7 @@ Java.perform(() => {
   const WebViewClient = Java.use("android.webkit.WebViewClient");
   const ValueCallback = Java.use("android.webkit.ValueCallback");
   const StringClass = Java.use("java.lang.String");
+  const ActivityCompat = Java.use("androidx.core.app.ActivityCompat");
 
   const ProbeCallback = Java.registerClass({
     name: "com.frida.instrumentation.ProbeCallback",
@@ -152,6 +154,10 @@ Java.perform(() => {
     return retval;
   };
 
+  const inject = (view) => {
+    view.evaluateJavascript(StringClass.$new(INJECTION), null);
+  };
+
   WebViewClient.onPageFinished.overload(
     "android.webkit.WebView",
     "java.lang.String",
@@ -164,7 +170,7 @@ Java.perform(() => {
       retval: retval,
     });
 
-    view.evaluateJavascript(StringClass.$new(INJECTION), null);
+    inject(view);
     active = Java.retain(view);
 
     return retval;
@@ -176,7 +182,7 @@ Java.perform(() => {
   ).implementation = function (view, url) {
     const retval = this.onLoadResource(view, url);
 
-    view.evaluateJavascript(StringClass.$new(INJECTION), null);
+    inject(view);
     active = Java.retain(view);
 
     return retval;
@@ -196,6 +202,23 @@ Java.perform(() => {
         script: script,
       });
     }
+
+    return retval;
+  };
+
+  ActivityCompat.requestPermissions.overload(
+    "android.app.Activity",
+    "java.lang.String[]",
+    "int",
+  ).implementation = function (activity, permissions, requestCode) {
+    const retval = this.requestPermissions(activity, permissions, requestCode);
+
+    log(EVENT_TYPE.PERMISSION_REQUESTED, {
+      activity: activity,
+      permissions: permissions,
+      requestCode: requestCode,
+      retval: retval,
+    });
 
     return retval;
   };
